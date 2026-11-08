@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:17
+    env_file: .env
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Источник (слой raw = схема public): DDL + детерминированный генератор 300 000 сделок.
+      # Скрипты исполняются один раз при инициализации пустого тома.
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./sql/synthetic.sql:/docker-entrypoint-initdb.d/02_synthetic.sql:ro
+    healthcheck:
+      # 127.0.0.1: во время init Postgres слушает только unix-сокет, проверка по TCP
+      # проходит лишь когда сервер реально готов принимать подключения.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 90
+
+  pipeline:
+    build: .
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./artifacts:/app/artifacts
+    # ETL -> витрины -> ML. Запускается один раз и завершается (идемпотентно).
+    command: ["python", "-m", "etl.run_all"]
+
+volumes:
+  pgdata:
