@@ -3,3 +3,4 @@ artifacts/*
 !artifacts/.gitkeep
 __pycache__/
 .pytest_cache/
+.env.bak

@@ -1,18 +1,18 @@
 services:
   postgres:
     image: postgres:17
-    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-deals_bigdata}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      # Значение по умолчанию только для локального запуска; свой пароль задаётся в .env
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
       - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # Источник (слой raw = схема public): DDL + детерминированный генератор 300 000 сделок.
-      # Скрипты исполняются один раз при инициализации пустого тома.
       - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - ./sql/synthetic.sql:/docker-entrypoint-initdb.d/02_synthetic.sql:ro
     healthcheck:
-      # 127.0.0.1: во время init Postgres слушает только unix-сокет, проверка по TCP
-      # проходит лишь когда сервер реально готов принимать подключения.
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
@@ -20,13 +20,23 @@ services:
 
   pipeline:
     build: .
-    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432          # порт внутри Docker-сети, не менять
+      POSTGRES_DB: ${POSTGRES_DB:-deals_bigdata}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      AS_OF_DATE: ${AS_OF_DATE:-2026-10-26}
+      ETL_START_DATE: ${ETL_START_DATE:-2023-01-01}
+      ETL_END_DATE: ${ETL_END_DATE:-2027-12-31}
+      RANDOM_SEED: ${RANDOM_SEED:-42}
+      MODEL_NAME: ${MODEL_NAME:-catboost_v1}
+      ARTIFACTS_DIR: /app/artifacts
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - ./artifacts:/app/artifacts
-    # ETL -> витрины -> ML. Запускается один раз и завершается (идемпотентно).
     command: ["python", "-m", "etl.run_all"]
 
 volumes:
